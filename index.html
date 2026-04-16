@@ -23,14 +23,13 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
-
-        // --- Firebase Modules (ESM from CDN) ---
+        // --- 修正：importは必ず先頭に書く必要があります ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
-        // --- 【重要】Firebaseの設定をここに貼り付けてください ---
+        const { useState, useEffect } = React;
+
         const firebaseConfig = {
           apiKey: "AIzaSyBNRwcy2F7TS5AEAsmVJ9UoDyKhrI69UWo",
           authDomain: "quick-links-4ac3b.firebaseapp.com",
@@ -45,13 +44,11 @@
         const db = getFirestore(app);
         const appId = 'link-manager-app';
 
-        // --- Lucide Icon Component Wrapper ---
         const Icon = ({ name, size = 16, className = "" }) => {
-            useEffect(() => { lucide.createIcons(); }, [name]);
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
         };
 
-        // --- 子コンポーネント (Toast, Modal等) ---
         const Toast = ({ message, type, onClose }) => {
             useEffect(() => {
                 if (message) {
@@ -81,8 +78,8 @@
                         </div>
                         <div className="p-4"><p className="text-slate-300 text-sm">{message}</p></div>
                         <div className="p-3 bg-slate-950 flex justify-end gap-2 rounded-b-lg">
-                            <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition">キャンセル</button>
-                            <button onClick={onConfirm} className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-700 rounded transition">削除する</button>
+                            <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">キャンセル</button>
+                            <button onClick={onConfirm} className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-700 rounded">削除する</button>
                         </div>
                     </div>
                 </div>
@@ -138,7 +135,6 @@
             );
         };
 
-        // --- メインアプリ ---
         function App() {
             const ITEMS_PER_PAGE = 12;
             const [user, setUser] = useState(null);
@@ -149,10 +145,7 @@
             const [currentPage, setCurrentPage] = useState(1);
 
             useEffect(() => {
-                const initAuth = async () => {
-                    try { await signInAnonymously(auth); } catch (err) { console.error(err); }
-                };
-                initAuth();
+                signInAnonymously(auth).catch(err => console.error("Auth Error:", err));
                 return onAuthStateChanged(auth, setUser);
             }, []);
 
@@ -160,7 +153,11 @@
                 if (!user) return;
                 const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'linkData');
                 return onSnapshot(userDocRef, (docSnap) => {
-                    setLinks(docSnap.exists() ? docSnap.data().links : [{ id: 1, title: 'Google', url: 'https://google.com' }]);
+                    if (docSnap.exists()) {
+                        setLinks(docSnap.data().links || []);
+                    } else {
+                        setLinks([{ id: 1, title: 'Google', url: 'https://google.com' }]);
+                    }
                     setLoading(false);
                 }, () => setLoading(false));
             }, [user]);
@@ -170,7 +167,7 @@
                 try {
                     const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'linkData');
                     await setDoc(userDocRef, { links: newLinks }, { merge: true });
-                } catch (err) { setToast({ message: "保存失敗", type: "error" }); }
+                } catch (err) { setToast({ message: "同期失敗", type: "error" }); }
             };
 
             const handleSave = async (formData) => {
