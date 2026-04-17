@@ -9,26 +9,24 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
     <style>
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slide-in-bottom { from { transform: translateY(1rem); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes zoom-in { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .animate-in { animation-duration: 300ms; animation-fill-mode: both; }
-        .fade-in { animation-name: fade-in; }
-        .slide-in-from-bottom-4 { animation-name: slide-in-bottom; }
-        .zoom-in { animation-name: zoom-in; }
+        .animate-in { animation: fade-in 200ms both; }
+        body { background-color: #020617; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        // --- 修正：importは必ず先頭に書く必要があります ---
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useCallback } = React;
 
         const firebaseConfig = {
           apiKey: "AIzaSyBNRwcy2F7TS5AEAsmVJ9UoDyKhrI69UWo",
@@ -39,15 +37,14 @@
           appId: "1:145384041627:web:9a84887ff7a895aa4c43e"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
         const appId = 'link-manager-app';
 
-        const Icon = ({ name, size = 16, className = "" }) => {
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
-        };
+        const Icon = ({ name, size = 16, className = "" }) => (
+            <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>
+        );
 
         const Toast = ({ message, type, onClose }) => {
             useEffect(() => {
@@ -58,28 +55,34 @@
             }, [message, onClose]);
             if (!message) return null;
             return (
-                <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] animate-in fade-in slide-in-from-bottom-4">
-                    <div className={`px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm font-bold text-white ${type === 'error' ? 'bg-red-500' : 'bg-slate-800'}`}>
-                        {type !== 'error' && <Icon name="check-circle-2" size={16} />}
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] animate-in text-center">
+                    <div className={`px-6 py-2 rounded-full shadow-2xl flex items-center gap-2 text-sm font-bold text-white border border-white/10 ${type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
                         {message}
                     </div>
                 </div>
             );
         };
 
-        const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }) => {
+        const InputModal = ({ isOpen, type, initialData, onSave, onCancel }) => {
+            const [form, setForm] = useState({ title: '', url: '' });
+            useEffect(() => {
+                if (isOpen) setForm(initialData || { title: '', url: 'https://' });
+            }, [isOpen, initialData]);
             if (!isOpen) return null;
             return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 text-slate-100">
-                    <div className="bg-slate-900 rounded-lg shadow-xl w-full max-w-sm border border-slate-700 animate-in zoom-in">
-                        <div className="p-4 border-b border-slate-800 flex items-center gap-2 text-red-400">
-                            <Icon name="alert-triangle" size={20} />
-                            <h3 className="font-bold">{title}</h3>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="bg-slate-900 rounded-3xl w-full max-w-sm border border-slate-700 shadow-2xl animate-in">
+                        <div className="p-5 border-b border-slate-800 font-black text-blue-400 flex items-center gap-2">
+                            <Icon name={type === 'add' ? 'plus-circle' : 'edit-3'} size={20} />
+                            {type === 'add' ? '新規追加' : '編集'}
                         </div>
-                        <div className="p-4"><p className="text-slate-300 text-sm">{message}</p></div>
-                        <div className="p-3 bg-slate-950 flex justify-end gap-2 rounded-b-lg">
-                            <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">キャンセル</button>
-                            <button onClick={onConfirm} className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-700 rounded">削除する</button>
+                        <div className="p-6 space-y-4">
+                            <input type="text" value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm focus:border-blue-500 outline-none transition-all" placeholder="サイト名" />
+                            <input type="text" value={form.url} onChange={e => setForm({...form, url: e.target.value})} className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm font-mono focus:border-blue-500 outline-none transition-all" placeholder="https://..." />
+                        </div>
+                        <div className="p-5 flex justify-end gap-3 bg-slate-950/30">
+                            <button onClick={onCancel} className="px-5 py-2 text-sm text-slate-500 font-bold">戻る</button>
+                            <button onClick={() => onSave(form)} className="px-8 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/40">保存</button>
                         </div>
                     </div>
                 </div>
@@ -89,46 +92,12 @@
         const SettingsModal = ({ isOpen, onClose, onExport, onImport }) => {
             if (!isOpen) return null;
             return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 text-slate-100">
-                    <div className="bg-slate-900 rounded-lg shadow-xl w-full max-w-sm border border-slate-700 animate-in zoom-in">
-                        <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-                            <h3 className="font-bold flex items-center gap-2 text-sm"><Icon name="settings" size={18} /> データ管理</h3>
-                            <button onClick={onClose} className="text-slate-400 hover:text-white"><Icon name="x" size={18} /></button>
-                        </div>
-                        <div className="p-5 grid grid-cols-2 gap-3">
-                            <button onClick={onExport} className="flex flex-col items-center p-4 border border-slate-700 rounded-lg hover:bg-slate-800 transition gap-2">
-                                <Icon name="download" size={20} className="text-blue-400" />
-                                <span className="text-xs font-bold">保存</span>
-                            </button>
-                            <label className="flex flex-col items-center p-4 border border-slate-700 rounded-lg hover:bg-slate-800 transition gap-2 cursor-pointer">
-                                <Icon name="upload" size={20} className="text-emerald-400" />
-                                <span className="text-xs font-bold">復元</span>
-                                <input type="file" accept=".json" className="hidden" onChange={onImport} />
-                            </label>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        const InputModal = ({ isOpen, isEdit, initialData, onSave, onCancel }) => {
-            const [formData, setFormData] = useState({ title: '', url: '' });
-            useEffect(() => { if (isOpen) setFormData(initialData || { title: '', url: 'https://' }); }, [isOpen, initialData]);
-            if (!isOpen) return null;
-            return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 text-slate-100">
-                    <div className="bg-slate-900 rounded-lg shadow-xl w-full max-w-md border border-slate-700 animate-in zoom-in">
-                        <div className="p-3 border-b border-slate-800 flex justify-between items-center">
-                            <h3 className="font-bold text-sm text-blue-400">{isEdit ? '編集' : '新規登録'}</h3>
-                            <button onClick={onCancel} className="text-slate-400 hover:text-white"><Icon name="x" size={16} /></button>
-                        </div>
-                        <div className="p-4 space-y-4">
-                            <input type="text" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-950 border border-slate-700 rounded text-white" placeholder="タイトル" />
-                            <input type="text" value={formData.url} onChange={e => setFormData({...formData, url: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-950 border border-slate-700 rounded text-white" placeholder="URL" />
-                        </div>
-                        <div className="p-3 bg-slate-950 flex justify-end gap-2 rounded-b-lg">
-                            <button onClick={onCancel} className="px-3 py-1.5 text-xs text-slate-400 hover:text-white">キャンセル</button>
-                            <button onClick={() => onSave(formData)} className="px-4 py-1.5 text-xs bg-blue-600 text-white font-bold rounded">保存</button>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                    <div className="bg-slate-900 rounded-3xl w-full max-w-sm border border-slate-700 animate-in overflow-hidden shadow-2xl">
+                        <div className="p-5 border-b border-slate-800 flex justify-between items-center"><h3 className="font-bold text-slate-100">データ管理</h3><button onClick={onClose} className="text-slate-500 hover:text-white transition"><Icon name="x" size={24} /></button></div>
+                        <div className="p-8 grid grid-cols-2 gap-4 bg-slate-950/20">
+                            <button onClick={onExport} className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-blue-400 group"><Icon name="download" size={32} className="group-hover:scale-110 transition-transform" /><span className="text-xs font-bold">エクスポート</span></button>
+                            <label className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-emerald-400 cursor-pointer group"><Icon name="upload" size={32} className="group-hover:scale-110 transition-transform" /><span className="text-xs font-bold">インポート</span><input type="file" className="hidden" accept=".json" onChange={onImport} /></label>
                         </div>
                     </div>
                 </div>
@@ -136,7 +105,7 @@
         };
 
         function App() {
-            const ITEMS_PER_PAGE = 12;
+            const ITEMS_PER_PAGE = 10;
             const [user, setUser] = useState(null);
             const [links, setLinks] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -144,55 +113,84 @@
             const [toast, setToast] = useState({ message: null, type: 'success' });
             const [currentPage, setCurrentPage] = useState(1);
 
+            // 修正3: アイコン表示のしつこい再描画（3秒後まで段階的に実行）
             useEffect(() => {
-                signInAnonymously(auth).catch(err => console.error("Auth Error:", err));
-                return onAuthStateChanged(auth, setUser);
-            }, []);
+                const trigger = () => { if (window.lucide) window.lucide.createIcons(); };
+                trigger();
+                const timers = [50, 150, 400, 1000, 2500, 3500].map(ms => setTimeout(trigger, ms));
+                return () => timers.forEach(clearTimeout);
+            }, [links, modalState.type, currentPage, loading]);
 
-            useEffect(() => {
-                if (!user) return;
-                const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'linkData');
-                return onSnapshot(userDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        setLinks(docSnap.data().links || []);
-                    } else {
-                        setLinks([{ id: 1, title: 'Google', url: 'https://google.com' }]);
-                    }
-                    setLoading(false);
-                }, () => setLoading(false));
-            }, [user]);
-
-            const syncToCloud = async (newLinks) => {
+            const syncToCloud = useCallback(async (newLinks) => {
                 if (!user) return;
                 try {
-                    const userDocRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'linkData');
-                    await setDoc(userDocRef, { links: newLinks }, { merge: true });
-                } catch (err) { setToast({ message: "同期失敗", type: "error" }); }
+                    await db.doc(`artifacts/${appId}/users/${user.uid}/settings/linkData`).set({ links: newLinks }, { merge: true });
+                } catch (err) { setToast({ message: "同期に失敗しました", type: "error" }); }
+            }, [user]);
+
+            useEffect(() => {
+                const unsubscribe = auth.onAuthStateChanged(u => u ? setUser(u) : auth.signInAnonymously());
+                return unsubscribe;
+            }, []);
+
+            // 修正2: エラーハンドラの強化
+            useEffect(() => {
+                if (!user) return;
+                return db.doc(`artifacts/${appId}/users/${user.uid}/settings/linkData`).onSnapshot(
+                    snap => {
+                        if (snap.exists()) setLinks(snap.data().links || []);
+                        else { const init = [{id: 1, title: 'Google', url: 'https://google.com'}]; setLinks(init); syncToCloud(init); }
+                        setLoading(false);
+                    },
+                    err => { 
+                        console.error("Firestore Error:", err); 
+                        setLoading(false); 
+                        setToast({ message: "データ読み込みに失敗しました", type: "error" });
+                    }
+                );
+            }, [user, syncToCloud]);
+
+            const adjustPage = (newLinks) => {
+                const total = Math.ceil(newLinks.length / ITEMS_PER_PAGE);
+                if (currentPage > total && total >= 1) setCurrentPage(total);
             };
 
+            // 修正1: トーストメッセージ判定のバグ修正
             const handleSave = async (formData) => {
-                const newLinks = modalState.type === 'add' ? [...links, { id: Date.now(), ...formData }] : links.map(l => l.id === modalState.data.id ? { ...l, ...formData } : l);
+                if (!formData.title.trim() || !formData.url.trim()) {
+                    setToast({ message: "タイトルとURLを入力してください", type: "error" });
+                    return;
+                }
+                const isAdd = modalState.type === 'add';
+                const newLinks = isAdd
+                    ? [...links, { id: Date.now(), ...formData }] 
+                    : links.map(l => l.id === modalState.data?.id ? { ...l, ...formData } : l);
+                
                 setLinks(newLinks);
                 await syncToCloud(newLinks);
+                adjustPage(newLinks);
                 setModalState({ type: null, data: null });
-                setToast({ message: "保存しました", type: "success" });
+                setToast({ message: isAdd ? "追加しました" : "更新しました", type: "success" });
             };
 
             const handleDelete = async () => {
+                if (!modalState.data?.id) return;
                 const newLinks = links.filter(l => l.id !== modalState.data.id);
                 setLinks(newLinks);
                 await syncToCloud(newLinks);
+                adjustPage(newLinks);
                 setModalState({ type: null, data: null });
                 setToast({ message: "削除しました", type: "success" });
             };
 
+            // 修正4: handleExport の追加
             const handleExport = () => {
                 const blob = new Blob([JSON.stringify(links, null, 2)], { type: "application/json" });
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
-                a.download = `quick_links.json`;
+                a.download = `quick_links_backup_${new Date().toISOString().slice(0,10)}.json`;
                 a.click();
-                setToast({ message: "JSON出力完了", type: "success" });
+                setToast({ message: "バックアップを保存しました", type: "success" });
             };
 
             const handleImport = (e) => {
@@ -205,9 +203,11 @@
                         if (Array.isArray(imported)) {
                             setLinks(imported);
                             await syncToCloud(imported);
-                            setToast({ message: "復元完了", type: "success" });
+                            setCurrentPage(1);
+                            setToast({ message: "データを復元しました", type: "success" });
+                            setModalState({ type: null });
                         }
-                    } catch (err) { setToast({ message: "無効なファイル", type: "error" }); }
+                    } catch { setToast({ message: "読み込みに失敗しました", type: "error" }); }
                 };
                 reader.readAsText(file);
             };
@@ -215,36 +215,50 @@
             const totalPages = Math.ceil(links.length / ITEMS_PER_PAGE);
             const displayedLinks = links.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-            if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-950"><div className="w-8 h-8 border-b-2 border-blue-500 rounded-full animate-spin"></div></div>;
+            if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-black tracking-widest text-xs uppercase animate-pulse">Establishing Connection...</div>;
 
             return (
-                <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-                    <div className="max-w-xl mx-auto min-h-screen flex flex-col bg-slate-900 border-x border-slate-800 shadow-2xl">
-                        <header className="px-4 py-4 border-b border-slate-800 flex justify-between items-center sticky top-0 bg-slate-900/95 backdrop-blur-md z-10">
-                            <div className="flex items-center gap-2">
-                                <h1 className="text-xl font-black bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">Quick Links</h1>
-                                <Icon name="cloud" size={14} className="text-emerald-500 animate-pulse" />
+                <div className="min-h-screen bg-slate-950 text-slate-100 p-2 sm:p-4 custom-scrollbar">
+                    <div className="max-w-md mx-auto bg-slate-900 rounded-[2.5rem] shadow-2xl flex flex-col min-h-[85vh] border border-slate-800 overflow-hidden">
+                        <header className="p-5 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 flex justify-between items-center sticky top-0 z-20">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/50"><Icon name="zap" className="text-white" size={24} /></div>
+                                <div>
+                                    <h1 className="font-black text-lg leading-none italic tracking-tighter uppercase">Quick Links</h1>
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">Cloud Synced</span>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => setModalState({ type: 'settings' })} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 transition"><Icon name="settings" size={18} /></button>
-                                <button onClick={() => setModalState({ type: 'add' })} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center gap-1 transition active:scale-95">
-                                    <Icon name="plus" size={14} /> 登録
-                                </button>
+                            <div className="flex gap-1.5">
+                                <button onClick={() => setModalState({ type: 'settings' })} className="p-2.5 text-slate-500 hover:text-white transition hover:bg-slate-800 rounded-xl"><Icon name="database" size={20} /></button>
+                                <button onClick={() => setModalState({ type: 'add' })} className="bg-blue-600 hover:bg-blue-500 p-2.5 rounded-xl text-white shadow-lg shadow-blue-900/40 active:scale-95 transition"><Icon name="plus" size={24} /></button>
                             </div>
                         </header>
 
-                        <div className="flex-1 p-3 space-y-1.5">
+                        {/* 修正5: 日本語メッセージへの統一 */}
+                        <div className="flex-1 p-3 space-y-2.5">
                             {displayedLinks.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-40 text-slate-600"><p className="text-sm">リンクがありません</p></div>
+                                <div className="flex flex-col items-center justify-center py-28 text-slate-700 animate-in">
+                                    <div className="w-24 h-24 bg-slate-800/20 rounded-full flex items-center justify-center mb-6">
+                                        <Icon name="layout" size={64} className="opacity-10" />
+                                    </div>
+                                    <p className="font-black text-sm text-slate-500">リンクが登録されていません</p>
+                                    <p className="text-[10px] mt-3 bg-slate-800 px-4 py-1.5 rounded-full text-slate-400 font-bold uppercase tracking-widest shadow-inner">
+                                        右上の方にある ＋ ボタンから追加してください
+                                    </p>
+                                </div>
                             ) : (
-                                displayedLinks.map((link) => (
-                                    <div key={link.id} className="flex items-center bg-slate-800/50 border border-slate-700/50 rounded-lg h-12 overflow-hidden hover:border-slate-500 transition group">
-                                        <button className="flex-1 px-4 text-left h-full hover:bg-blue-500/5 transition truncate" onClick={() => window.open(link.url, '_blank')}>
-                                            <span className="text-sm font-bold text-blue-400 group-hover:text-blue-300">{link.title}</span>
+                                displayedLinks.map(link => (
+                                    <div key={link.id} className="flex items-center bg-slate-800/30 border border-slate-700/40 rounded-[1.5rem] group animate-in hover:border-blue-500/30 hover:bg-slate-800/50 transition-all">
+                                        <button onClick={() => window.open(link.url, '_blank')} className="flex-1 p-4 text-left overflow-hidden">
+                                            <div className="text-sm font-bold text-blue-400 truncate group-hover:text-blue-300 transition-colors mb-0.5">{link.title}</div>
+                                            <div className="text-[9px] text-slate-600 truncate font-mono tracking-tighter opacity-70 group-hover:opacity-100 transition-opacity">{link.url}</div>
                                         </button>
-                                        <div className="flex items-center border-l border-slate-700 h-full bg-slate-900/30">
-                                            <button onClick={() => setModalState({ type: 'edit', data: link })} className="w-12 h-full flex justify-center items-center text-slate-500 hover:text-white hover:bg-slate-800 transition"><Icon name="edit-2" size={16} /></button>
-                                            <button onClick={() => setModalState({ type: 'delete', data: link })} className="w-12 h-full flex justify-center items-center text-slate-600 hover:text-red-400 hover:bg-red-950/30 transition"><Icon name="trash-2" size={16} /></button>
+                                        <div className="flex pr-3 gap-1 shadow-inner">
+                                            <button onClick={() => setModalState({ type: 'edit', data: link })} className="p-2.5 text-slate-500 hover:text-blue-400 hover:bg-blue-400/10 rounded-xl transition"><Icon name="edit-2" size={18} /></button>
+                                            <button onClick={() => setModalState({ type: 'delete', data: link })} className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition"><Icon name="trash-2" size={18} /></button>
                                         </div>
                                     </div>
                                 ))
@@ -252,23 +266,48 @@
                         </div>
 
                         {totalPages > 1 && (
-                            <div className="p-4 flex justify-center items-center gap-6 border-t border-slate-800 bg-slate-900">
-                                <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="p-2 text-slate-400 disabled:opacity-20 hover:text-white transition"><Icon name="chevron-left" size={24} /></button>
-                                <span className="text-sm font-medium text-slate-500">{currentPage} / {totalPages}</span>
-                                <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-2 text-slate-400 disabled:opacity-20 hover:text-white transition"><Icon name="chevron-right" size={24} /></button>
+                            <div className="p-5 border-t border-slate-800 flex justify-between items-center bg-slate-950/20">
+                                <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="p-2 disabled:opacity-5 hover:bg-slate-800 rounded-xl text-slate-400 transition"><Icon name="chevron-left" size={28} /></button>
+                                <span className="text-[10px] font-black tracking-[0.4em] text-slate-600 uppercase ml-3">{currentPage} / {totalPages}</span>
+                                <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-2 disabled:opacity-5 hover:bg-slate-800 rounded-xl text-slate-400 transition"><Icon name="chevron-right" size={28} /></button>
                             </div>
                         )}
-
-                        <footer className="px-4 py-2 border-t border-slate-800 text-[10px] text-slate-500 flex justify-between items-center bg-slate-950">
-                            <div className="flex items-center gap-1.5"><div className="w-1 h-1 rounded-full bg-emerald-500 shadow-[0_0_4px_#10b981]"></div><span>Cloud Active</span></div>
-                            <span className="opacity-40">UID: {user?.uid}</span>
+                        
+                        <footer className="p-4 bg-slate-950/50 border-t border-slate-800 text-[9px] text-slate-700 flex justify-between font-mono tracking-widest uppercase italic font-bold">
+                            <span>Status: Online</span>
+                            <span className="opacity-40">User: {user?.uid.slice(0, 10)}</span>
                         </footer>
                     </div>
 
-                    <InputModal isOpen={modalState.type === 'add' || modalState.type === 'edit'} isEdit={modalState.type === 'edit'} initialData={modalState.data} onSave={handleSave} onCancel={() => setModalState({ type: null, data: null })} />
-                    <ConfirmModal isOpen={modalState.type === 'delete'} title="削除" message={`「${modalState.data?.title}」を削除しますか？`} onConfirm={handleDelete} onCancel={() => setModalState({ type: null, data: null })} />
-                    <SettingsModal isOpen={modalState.type === 'settings'} onClose={() => setModalState({ type: null, data: null })} onExport={handleExport} onImport={handleImport} />
-                    <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, message: null })} />
+                    <InputModal 
+                        isOpen={modalState.type === 'add' || modalState.type === 'edit'} 
+                        type={modalState.type} 
+                        initialData={modalState.data} 
+                        onSave={handleSave} 
+                        onCancel={() => setModalState({ type: null, data: null })} 
+                    />
+
+                    {modalState.type === 'delete' && (
+                        <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 backdrop-blur-md">
+                            <div className="bg-slate-900 border border-red-900/30 p-8 rounded-[2.5rem] w-full max-w-xs animate-in shadow-2xl text-center">
+                                <div className="w-20 h-20 bg-red-900/20 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner"><Icon name="alert-triangle" size={40} /></div>
+                                <p className="text-md font-black text-slate-100 mb-2">リンクを削除しますか？</p>
+                                <p className="text-[11px] text-slate-500 mb-8 truncate px-2 font-mono">"{modalState.data?.title}"</p>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setModalState({ type: null })} className="flex-1 py-3 text-xs text-slate-500 font-bold hover:bg-slate-800 rounded-2xl transition">キャンセル</button>
+                                    <button onClick={handleDelete} className="flex-1 py-3 bg-red-600 text-white rounded-2xl text-xs font-bold shadow-lg shadow-red-900/40 active:scale-95 transition">削除する</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <SettingsModal 
+                        isOpen={modalState.type === 'settings'} 
+                        onClose={() => setModalState({ type: null })} 
+                        onExport={handleExport} 
+                        onImport={handleImport} 
+                    />
+                    <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: null, type: 'success' })} />
                 </div>
             );
         }
