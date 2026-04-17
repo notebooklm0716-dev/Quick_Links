@@ -28,6 +28,7 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback } = React;
 
+        // 【重要】Firebaseコンソールから取得した最新の設定に置き換えてください
         const firebaseConfig = {
           apiKey: "AIzaSyBNRwcy2F7TS5AEAsmVJ9UoDyKhrI69UWo",
           authDomain: "quick-links-4ac3b.firebaseapp.com",
@@ -82,7 +83,7 @@
                         </div>
                         <div className="p-5 flex justify-end gap-3 bg-slate-950/30">
                             <button onClick={onCancel} className="px-5 py-2 text-sm text-slate-500 font-bold">戻る</button>
-                            <button onClick={() => onSave(form)} className="px-8 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/40">保存</button>
+                            <button onClick={() => onSave(form)} className="px-8 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/40 active:scale-95 transition">保存</button>
                         </div>
                     </div>
                 </div>
@@ -96,8 +97,8 @@
                     <div className="bg-slate-900 rounded-3xl w-full max-w-sm border border-slate-700 animate-in overflow-hidden shadow-2xl">
                         <div className="p-5 border-b border-slate-800 flex justify-between items-center"><h3 className="font-bold text-slate-100">データ管理</h3><button onClick={onClose} className="text-slate-500 hover:text-white transition"><Icon name="x" size={24} /></button></div>
                         <div className="p-8 grid grid-cols-2 gap-4 bg-slate-950/20">
-                            <button onClick={onExport} className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-blue-400 group"><Icon name="download" size={32} className="group-hover:scale-110 transition-transform" /><span className="text-xs font-bold">エクスポート</span></button>
-                            <label className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-emerald-400 cursor-pointer group"><Icon name="upload" size={32} className="group-hover:scale-110 transition-transform" /><span className="text-xs font-bold">インポート</span><input type="file" className="hidden" accept=".json" onChange={onImport} /></label>
+                            <button onClick={onExport} className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-blue-400 group"><Icon name="download" size={32} className="group-hover:scale-110 transition-transform" /><span className="text-xs font-bold">保存</span></button>
+                            <label className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-emerald-400 cursor-pointer group"><Icon name="upload" size={32} className="group-hover:scale-110 transition-transform" /><span className="text-xs font-bold">復元</span><input type="file" className="hidden" accept=".json" onChange={onImport} /></label>
                         </div>
                     </div>
                 </div>
@@ -113,11 +114,10 @@
             const [toast, setToast] = useState({ message: null, type: 'success' });
             const [currentPage, setCurrentPage] = useState(1);
 
-            // 修正3: アイコン表示のしつこい再描画（3秒後まで段階的に実行）
             useEffect(() => {
                 const trigger = () => { if (window.lucide) window.lucide.createIcons(); };
                 trigger();
-                const timers = [50, 150, 400, 1000, 2500, 3500].map(ms => setTimeout(trigger, ms));
+                const timers = [50, 150, 400, 1000, 2500, 4000].map(ms => setTimeout(trigger, ms));
                 return () => timers.forEach(clearTimeout);
             }, [links, modalState.type, currentPage, loading]);
 
@@ -129,11 +129,13 @@
             }, [user]);
 
             useEffect(() => {
-                const unsubscribe = auth.onAuthStateChanged(u => u ? setUser(u) : auth.signInAnonymously());
+                const unsubscribe = auth.onAuthStateChanged(u => u ? setUser(u) : auth.signInAnonymously().catch(err => {
+                    console.error("Auth Error:", err);
+                    setToast({ message: "認証エラー: 設定を確認してください", type: "error" });
+                }));
                 return unsubscribe;
             }, []);
 
-            // 修正2: エラーハンドラの強化
             useEffect(() => {
                 if (!user) return;
                 return db.doc(`artifacts/${appId}/users/${user.uid}/settings/linkData`).onSnapshot(
@@ -145,7 +147,7 @@
                     err => { 
                         console.error("Firestore Error:", err); 
                         setLoading(false); 
-                        setToast({ message: "データ読み込みに失敗しました", type: "error" });
+                        setToast({ message: "データの取得に失敗しました", type: "error" });
                     }
                 );
             }, [user, syncToCloud]);
@@ -155,10 +157,9 @@
                 if (currentPage > total && total >= 1) setCurrentPage(total);
             };
 
-            // 修正1: トーストメッセージ判定のバグ修正
             const handleSave = async (formData) => {
                 if (!formData.title.trim() || !formData.url.trim()) {
-                    setToast({ message: "タイトルとURLを入力してください", type: "error" });
+                    setToast({ message: "入力項目が空です", type: "error" });
                     return;
                 }
                 const isAdd = modalState.type === 'add';
@@ -170,7 +171,7 @@
                 await syncToCloud(newLinks);
                 adjustPage(newLinks);
                 setModalState({ type: null, data: null });
-                setToast({ message: isAdd ? "追加しました" : "更新しました", type: "success" });
+                setToast({ message: isAdd ? "リンクを追加しました" : "リンクを更新しました", type: "success" });
             };
 
             const handleDelete = async () => {
@@ -183,14 +184,15 @@
                 setToast({ message: "削除しました", type: "success" });
             };
 
-            // 修正4: handleExport の追加
             const handleExport = () => {
-                const blob = new Blob([JSON.stringify(links, null, 2)], { type: "application/json" });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `quick_links_backup_${new Date().toISOString().slice(0,10)}.json`;
-                a.click();
-                setToast({ message: "バックアップを保存しました", type: "success" });
+                try {
+                    const blob = new Blob([JSON.stringify(links, null, 2)], { type: "application/json" });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `quick_links_backup.json`;
+                    a.click();
+                    setToast({ message: "バックアップを保存しました", type: "success" });
+                } catch (e) { setToast({ message: "エクスポート失敗", type: "error" }); }
             };
 
             const handleImport = (e) => {
@@ -204,10 +206,10 @@
                             setLinks(imported);
                             await syncToCloud(imported);
                             setCurrentPage(1);
-                            setToast({ message: "データを復元しました", type: "success" });
+                            setToast({ message: "復元が完了しました", type: "success" });
                             setModalState({ type: null });
                         }
-                    } catch { setToast({ message: "読み込みに失敗しました", type: "error" }); }
+                    } catch { setToast({ message: "ファイル形式が不正です", type: "error" }); }
                 };
                 reader.readAsText(file);
             };
@@ -215,19 +217,21 @@
             const totalPages = Math.ceil(links.length / ITEMS_PER_PAGE);
             const displayedLinks = links.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-            if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-black tracking-widest text-xs uppercase animate-pulse">Establishing Connection...</div>;
+            if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 font-bold uppercase tracking-widest animate-pulse">Establishing Link...</div>;
 
             return (
                 <div className="min-h-screen bg-slate-950 text-slate-100 p-2 sm:p-4 custom-scrollbar">
                     <div className="max-w-md mx-auto bg-slate-900 rounded-[2.5rem] shadow-2xl flex flex-col min-h-[85vh] border border-slate-800 overflow-hidden">
                         <header className="p-5 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 flex justify-between items-center sticky top-0 z-20">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/50"><Icon name="zap" className="text-white" size={24} /></div>
+                                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-900/50">
+                                    <Icon name="zap" className="text-white" size={24} />
+                                </div>
                                 <div>
-                                    <h1 className="font-black text-lg leading-none italic tracking-tighter uppercase">Quick Links</h1>
+                                    <h1 className="font-black text-lg leading-none tracking-tighter uppercase italic">Quick Links</h1>
                                     <div className="flex items-center gap-1.5 mt-1">
                                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none">Cloud Synced</span>
+                                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Connected</span>
                                     </div>
                                 </div>
                             </div>
@@ -237,26 +241,25 @@
                             </div>
                         </header>
 
-                        {/* 修正5: 日本語メッセージへの統一 */}
                         <div className="flex-1 p-3 space-y-2.5">
                             {displayedLinks.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-28 text-slate-700 animate-in">
-                                    <div className="w-24 h-24 bg-slate-800/20 rounded-full flex items-center justify-center mb-6">
-                                        <Icon name="layout" size={64} className="opacity-10" />
+                                    <div className="w-24 h-24 bg-slate-800/20 rounded-full flex items-center justify-center mb-6 border border-slate-800">
+                                        <Icon name="inbox" size={48} className="opacity-10" />
                                     </div>
-                                    <p className="font-black text-sm text-slate-500">リンクが登録されていません</p>
-                                    <p className="text-[10px] mt-3 bg-slate-800 px-4 py-1.5 rounded-full text-slate-400 font-bold uppercase tracking-widest shadow-inner">
-                                        右上の方にある ＋ ボタンから追加してください
+                                    <p className="font-black text-sm text-slate-500 tracking-tight">リンクが空っぽです</p>
+                                    <p className="text-[10px] mt-3 bg-slate-800 px-4 py-2 rounded-full text-slate-400 font-bold uppercase tracking-widest border border-slate-700 shadow-inner">
+                                        右上の ＋ ボタンから追加してください
                                     </p>
                                 </div>
                             ) : (
                                 displayedLinks.map(link => (
-                                    <div key={link.id} className="flex items-center bg-slate-800/30 border border-slate-700/40 rounded-[1.5rem] group animate-in hover:border-blue-500/30 hover:bg-slate-800/50 transition-all">
+                                    <div key={link.id} className="flex items-center bg-slate-800/20 border border-slate-700/30 rounded-[1.5rem] group animate-in hover:border-blue-500/30 hover:bg-slate-800/50 transition-all">
                                         <button onClick={() => window.open(link.url, '_blank')} className="flex-1 p-4 text-left overflow-hidden">
-                                            <div className="text-sm font-bold text-blue-400 truncate group-hover:text-blue-300 transition-colors mb-0.5">{link.title}</div>
-                                            <div className="text-[9px] text-slate-600 truncate font-mono tracking-tighter opacity-70 group-hover:opacity-100 transition-opacity">{link.url}</div>
+                                            <div className="text-sm font-bold text-blue-400 truncate group-hover:text-blue-300 transition-colors mb-0.5 tracking-tight">{link.title}</div>
+                                            <div className="text-[9px] text-slate-600 truncate font-mono tracking-tighter opacity-60 group-hover:opacity-100 transition-opacity">{link.url}</div>
                                         </button>
-                                        <div className="flex pr-3 gap-1 shadow-inner">
+                                        <div className="flex pr-3 gap-1">
                                             <button onClick={() => setModalState({ type: 'edit', data: link })} className="p-2.5 text-slate-500 hover:text-blue-400 hover:bg-blue-400/10 rounded-xl transition"><Icon name="edit-2" size={18} /></button>
                                             <button onClick={() => setModalState({ type: 'delete', data: link })} className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition"><Icon name="trash-2" size={18} /></button>
                                         </div>
@@ -267,15 +270,15 @@
 
                         {totalPages > 1 && (
                             <div className="p-5 border-t border-slate-800 flex justify-between items-center bg-slate-950/20">
-                                <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="p-2 disabled:opacity-5 hover:bg-slate-800 rounded-xl text-slate-400 transition"><Icon name="chevron-left" size={28} /></button>
-                                <span className="text-[10px] font-black tracking-[0.4em] text-slate-600 uppercase ml-3">{currentPage} / {totalPages}</span>
-                                <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-2 disabled:opacity-5 hover:bg-slate-800 rounded-xl text-slate-400 transition"><Icon name="chevron-right" size={28} /></button>
+                                <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="p-2.5 disabled:opacity-5 hover:bg-slate-800 rounded-xl text-slate-400 transition"><Icon name="chevron-left" size={28} /></button>
+                                <span className="text-[10px] font-black tracking-[0.4em] text-slate-600 uppercase ml-3 leading-none">{currentPage} / {totalPages}</span>
+                                <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-2.5 disabled:opacity-5 hover:bg-slate-800 rounded-xl text-slate-400 transition"><Icon name="chevron-right" size={28} /></button>
                             </div>
                         )}
                         
-                        <footer className="p-4 bg-slate-950/50 border-t border-slate-800 text-[9px] text-slate-700 flex justify-between font-mono tracking-widest uppercase italic font-bold">
-                            <span>Status: Online</span>
-                            <span className="opacity-40">User: {user?.uid.slice(0, 10)}</span>
+                        <footer className="p-4 bg-slate-950/50 border-t border-slate-800 text-[9px] text-slate-700 flex justify-between font-mono tracking-widest uppercase italic font-black">
+                            <span>Ready</span>
+                            <span className="opacity-30">ID: {user?.uid.slice(0, 12)}</span>
                         </footer>
                     </div>
 
@@ -290,11 +293,11 @@
                     {modalState.type === 'delete' && (
                         <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 backdrop-blur-md">
                             <div className="bg-slate-900 border border-red-900/30 p-8 rounded-[2.5rem] w-full max-w-xs animate-in shadow-2xl text-center">
-                                <div className="w-20 h-20 bg-red-900/20 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner"><Icon name="alert-triangle" size={40} /></div>
+                                <div className="w-20 h-20 bg-red-900/20 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner border border-red-900/20"><Icon name="alert-triangle" size={40} /></div>
                                 <p className="text-md font-black text-slate-100 mb-2">リンクを削除しますか？</p>
-                                <p className="text-[11px] text-slate-500 mb-8 truncate px-2 font-mono">"{modalState.data?.title}"</p>
+                                <p className="text-[11px] text-slate-500 mb-8 truncate px-4 font-mono">"{modalState.data?.title}"</p>
                                 <div className="flex gap-3">
-                                    <button onClick={() => setModalState({ type: null })} className="flex-1 py-3 text-xs text-slate-500 font-bold hover:bg-slate-800 rounded-2xl transition">キャンセル</button>
+                                    <button onClick={() => setModalState({ type: null })} className="flex-1 py-3 text-xs text-slate-500 font-bold hover:bg-slate-800 rounded-2xl transition">やめる</button>
                                     <button onClick={handleDelete} className="flex-1 py-3 bg-red-600 text-white rounded-2xl text-xs font-bold shadow-lg shadow-red-900/40 active:scale-95 transition">削除する</button>
                                 </div>
                             </div>
