@@ -9,11 +9,10 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    
+   
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-
     <style>
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         .animate-in { animation: fade-in 200ms both; }
@@ -24,11 +23,10 @@
 </head>
 <body>
     <div id="root"></div>
-
     <script type="text/babel">
         const { useState, useEffect, useCallback } = React;
 
-        // Firebase構成 (スクリーンショットから正確に転記)
+        // Firebase構成
         const firebaseConfig = {
             apiKey: "AIzaSyBNRwcy2F7TS5AEASmVJ9UoDyKhrI69UWo",
             authDomain: "quick-links-4ac3b.firebaseapp.com",
@@ -64,7 +62,42 @@
             );
         };
 
-        // --- 入力モーダル ---
+        // --- Settings Modal（バックアップ・復元用） ---
+        const SettingsModal = ({ isOpen, onClose, onExport, onImport }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+                    <div className="bg-slate-900 rounded-3xl w-full max-w-sm border border-slate-700 animate-in overflow-hidden shadow-2xl">
+                        <div className="p-5 border-b border-slate-800 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-100 flex items-center gap-2">
+                                <Icon name="database" size={20} /> データ管理
+                            </h3>
+                            <button onClick={onClose} className="text-slate-500 hover:text-white transition">
+                                <Icon name="x" size={24} />
+                            </button>
+                        </div>
+                        <div className="p-8 grid grid-cols-2 gap-4 bg-slate-950/20">
+                            <button 
+                                onClick={onExport} 
+                                className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-blue-400 group"
+                            >
+                                <Icon name="download" size={32} className="group-hover:scale-110 transition-transform" />
+                                <span className="text-xs font-bold">保存（バックアップ）</span>
+                            </button>
+                            <label 
+                                className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-emerald-400 cursor-pointer group"
+                            >
+                                <Icon name="upload" size={32} className="group-hover:scale-110 transition-transform" />
+                                <span className="text-xs font-bold">復元（インポート）</span>
+                                <input type="file" className="hidden" accept=".json" onChange={onImport} />
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 入力モーダル（変更なし） ---
         const InputModal = ({ isOpen, type, initialData, onSave, onCancel }) => {
             const [form, setForm] = useState({ title: '', url: '' });
             useEffect(() => {
@@ -111,7 +144,9 @@
                 if (!user) return;
                 try {
                     await db.doc(`artifacts/${appId}/users/${user.uid}/settings/linkData`).set({ links: newLinks }, { merge: true });
-                } catch (err) { setToast({ message: "同期エラー", type: "error" }); }
+                } catch (err) { 
+                    setToast({ message: "同期エラー", type: "error" }); 
+                }
             }, [user]);
 
             useEffect(() => {
@@ -129,7 +164,6 @@
                 return unsubscribe;
             }, []);
 
-            // Firestore監視 (snap.exists プロパティ修正済み)
             useEffect(() => {
                 if (!user) return;
                 return db.doc(`artifacts/${appId}/users/${user.uid}/settings/linkData`).onSnapshot(
@@ -151,13 +185,52 @@
                 );
             }, [user, syncToCloud]);
 
+            // ========== バックアップ・復元関数（ここから追加） ==========
+            const handleExport = () => {
+                try {
+                    const blob = new Blob([JSON.stringify(links, null, 2)], { type: "application/json" });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `quick_links_backup_${new Date().toISOString().slice(0,10)}.json`;
+                    a.click();
+                    setToast({ message: "バックアップを保存しました", type: "success" });
+                } catch (e) {
+                    setToast({ message: "エクスポートに失敗しました", type: "error" });
+                }
+            };
+
+            const handleImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    try {
+                        const imported = JSON.parse(ev.target.result);
+                        if (Array.isArray(imported)) {
+                            setLinks(imported);
+                            await syncToCloud(imported);
+                            setCurrentPage(1);
+                            setToast({ message: "復元が完了しました", type: "success" });
+                            setModalState({ type: null });
+                        } else {
+                            setToast({ message: "ファイル形式が不正です", type: "error" });
+                        }
+                    } catch {
+                        setToast({ message: "JSONの読み込みに失敗しました", type: "error" });
+                    }
+                };
+                reader.readAsText(file);
+            };
+            // ========== 追加ここまで ==========
+
             const handleSave = async (formData) => {
                 if (!formData.title.trim() || !formData.url.trim()) return setToast({ message: "未入力です", type: "error" });
                 const isAdd = modalState.type === 'add';
                 const newLinks = isAdd
                     ? [...links, { id: Date.now(), ...formData }]
                     : links.map(l => l.id === modalState.data?.id ? { ...l, ...formData } : l);
-                
+               
                 setLinks(newLinks);
                 await syncToCloud(newLinks);
                 setModalState({ type: null, data: null });
@@ -192,9 +265,18 @@
                                 </div>
                                 <h1 className="font-black text-xl italic uppercase">Quick Links</h1>
                             </div>
-                            <button onClick={() => setModalState({ type: 'add' })} className="bg-blue-600 hover:bg-blue-500 p-2.5 rounded-xl text-white shadow-lg active:scale-95 transition">
-                                <Icon name="plus" size={24} />
-                            </button>
+                            <div className="flex gap-2">
+                                {/* 設定ボタン（新規追加） */}
+                                <button 
+                                    onClick={() => setModalState({ type: 'settings' })} 
+                                    className="p-2.5 text-slate-500 hover:text-white transition hover:bg-slate-800 rounded-xl"
+                                >
+                                    <Icon name="database" size={20} />
+                                </button>
+                                <button onClick={() => setModalState({ type: 'add' })} className="bg-blue-600 hover:bg-blue-500 p-2.5 rounded-xl text-white shadow-lg active:scale-95 transition">
+                                    <Icon name="plus" size={24} />
+                                </button>
+                            </div>
                         </header>
 
                         <div className="flex-1 p-3 space-y-2.5 custom-scrollbar overflow-y-auto">
@@ -223,19 +305,19 @@
                                 <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-2 disabled:opacity-5 text-slate-400 transition"><Icon name="chevron-right" size={28} /></button>
                             </div>
                         )}
-                        
+                       
                         <footer className="p-4 bg-slate-950/50 border-t border-slate-800 text-[9px] text-slate-700 flex justify-between font-mono font-bold italic uppercase tracking-widest">
                             <span>Status: Cloud Sync</span>
                             <span className="opacity-30">{user?.uid.slice(0, 10)}</span>
                         </footer>
                     </div>
 
-                    <InputModal 
-                        isOpen={modalState.type === 'add' || modalState.type === 'edit'} 
-                        type={modalState.type} 
-                        initialData={modalState.data} 
-                        onSave={handleSave} 
-                        onCancel={() => setModalState({ type: null, data: null })} 
+                    <InputModal
+                        isOpen={modalState.type === 'add' || modalState.type === 'edit'}
+                        type={modalState.type}
+                        initialData={modalState.data}
+                        onSave={handleSave}
+                        onCancel={() => setModalState({ type: null, data: null })}
                     />
 
                     {modalState.type === 'delete' && (
@@ -249,6 +331,14 @@
                             </div>
                         </div>
                     )}
+
+                    {/* データ管理モーダル */}
+                    <SettingsModal
+                        isOpen={modalState.type === 'settings'}
+                        onClose={() => setModalState({ type: null })}
+                        onExport={handleExport}
+                        onImport={handleImport}
+                    />
 
                     <Toast message={toast.message} onClose={() => setToast({ message: null })} />
                 </div>
