@@ -26,9 +26,9 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback } = React;
 
-        // Firebase構成
+        // === Firebase設定（最新のものに更新）===
         const firebaseConfig = {
-            apiKey: "ここに正しいAPIキーを貼り付けてください",
+            apiKey: "AIzaSyBNRwcy2F7TS5AEASmVJ9UoDyKhrI69UWo",
             authDomain: "quick-links-4ac3b.firebaseapp.com",
             projectId: "quick-links-4ac3b",
             storageBucket: "quick-links-4ac3b.firebasestorage.app",
@@ -55,14 +55,14 @@
             if (!message) return null;
             return (
                 <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] animate-in text-center px-4">
-                    <div className={`px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-sm font-bold text-white border border-white/10 ${type === 'error' ? 'bg-red-600' : 'bg-slate-800'}`}>
+                    <div className={`px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-sm font-bold text-white border border-white/10 ${type === 'error' ? 'bg-red-600' : 'bg-emerald-600'}`}>
                         {message}
                     </div>
                 </div>
             );
         };
 
-        // --- Settings Modal（バックアップ・復元用） ---
+        // データ管理モーダル（バックアップ・復元）
         const SettingsModal = ({ isOpen, onClose, onExport, onImport }) => {
             if (!isOpen) return null;
             return (
@@ -72,32 +72,29 @@
                             <h3 className="font-bold text-slate-100 flex items-center gap-2">
                                 <Icon name="database" size={20} /> データ管理
                             </h3>
-                            <button onClick={onClose} className="text-slate-500 hover:text-white transition">
+                            <button onClick={onClose} className="text-slate-500 hover:text-white">
                                 <Icon name="x" size={24} />
                             </button>
                         </div>
                         <div className="p-8 grid grid-cols-2 gap-4 bg-slate-950/20">
-                            <button 
-                                onClick={onExport} 
-                                className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-blue-400 group"
-                            >
+                            <button onClick={onExport} className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-blue-400 group">
                                 <Icon name="download" size={32} className="group-hover:scale-110 transition-transform" />
-                                <span className="text-xs font-bold">保存（バックアップ）</span>
+                                <span className="text-xs font-bold">バックアップ保存</span>
                             </button>
-                            <label 
-                                className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-emerald-400 cursor-pointer group"
-                            >
+                            <label className="flex flex-col items-center gap-3 p-6 border border-slate-800 rounded-2xl hover:bg-slate-800 transition text-emerald-400 cursor-pointer group">
                                 <Icon name="upload" size={32} className="group-hover:scale-110 transition-transform" />
-                                <span className="text-xs font-bold">復元（インポート）</span>
+                                <span className="text-xs font-bold">JSONから復元</span>
                                 <input type="file" className="hidden" accept=".json" onChange={onImport} />
                             </label>
+                        </div>
+                        <div className="px-6 pb-6 text-[10px] text-slate-500 text-center">
+                            AndroidではJSON復元をおすすめします
                         </div>
                     </div>
                 </div>
             );
         };
 
-        // --- 入力モーダル（変更なし） ---
         const InputModal = ({ isOpen, type, initialData, onSave, onCancel }) => {
             const [form, setForm] = useState({ title: '', url: '' });
             useEffect(() => {
@@ -149,6 +146,7 @@
                 }
             }, [user]);
 
+            // 認証（少し強化）
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(u => {
                     if (u) {
@@ -156,7 +154,7 @@
                     } else {
                         auth.signInAnonymously().catch(err => {
                             console.error("Auth Error:", err);
-                            setToast({ message: "認証に失敗しました。APIキーまたは匿名認証の設定を確認してください。", type: "error" });
+                            setToast({ message: "認証エラー: Firebase設定を確認してください", type: "error" });
                             setLoading(false);
                         });
                     }
@@ -164,6 +162,7 @@
                 return unsubscribe;
             }, []);
 
+            // Firestore監視
             useEffect(() => {
                 if (!user) return;
                 return db.doc(`artifacts/${appId}/users/${user.uid}/settings/linkData`).onSnapshot(
@@ -180,28 +179,26 @@
                     err => {
                         console.error("Firestore Error:", err);
                         setLoading(false);
-                        setToast({ message: "データの取得に失敗しました", type: "error" });
                     }
                 );
             }, [user, syncToCloud]);
 
-            // ========== バックアップ・復元関数（ここから追加） ==========
+            // バックアップ
             const handleExport = () => {
-                try {
-                    const blob = new Blob([JSON.stringify(links, null, 2)], { type: "application/json" });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `quick_links_backup_${new Date().toISOString().slice(0,10)}.json`;
-                    a.click();
-                    setToast({ message: "バックアップを保存しました", type: "success" });
-                } catch (e) {
-                    setToast({ message: "エクスポートに失敗しました", type: "error" });
-                }
+                const date = new Date().toISOString().slice(0,16).replace(/[:T]/g, '-');
+                const blob = new Blob([JSON.stringify(links, null, 2)], { type: "application/json" });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `quick_links_backup_${date}.json`;
+                a.click();
+                setToast({ message: "バックアップを保存しました", type: "success" });
             };
 
+            // 復元
             const handleImport = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
+                if (!confirm("現在のリンクをすべて上書きして復元しますか？")) return;
 
                 const reader = new FileReader();
                 reader.onload = async (ev) => {
@@ -211,8 +208,8 @@
                             setLinks(imported);
                             await syncToCloud(imported);
                             setCurrentPage(1);
-                            setToast({ message: "復元が完了しました", type: "success" });
                             setModalState({ type: null });
+                            setToast({ message: "JSONから復元しました", type: "success" });
                         } else {
                             setToast({ message: "ファイル形式が不正です", type: "error" });
                         }
@@ -222,7 +219,6 @@
                 };
                 reader.readAsText(file);
             };
-            // ========== 追加ここまで ==========
 
             const handleSave = async (formData) => {
                 if (!formData.title.trim() || !formData.url.trim()) return setToast({ message: "未入力です", type: "error" });
@@ -266,11 +262,7 @@
                                 <h1 className="font-black text-xl italic uppercase">Quick Links</h1>
                             </div>
                             <div className="flex gap-2">
-                                {/* 設定ボタン（新規追加） */}
-                                <button 
-                                    onClick={() => setModalState({ type: 'settings' })} 
-                                    className="p-2.5 text-slate-500 hover:text-white transition hover:bg-slate-800 rounded-xl"
-                                >
+                                <button onClick={() => setModalState({ type: 'settings' })} className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition">
                                     <Icon name="database" size={20} />
                                 </button>
                                 <button onClick={() => setModalState({ type: 'add' })} className="bg-blue-600 hover:bg-blue-500 p-2.5 rounded-xl text-white shadow-lg active:scale-95 transition">
@@ -305,10 +297,10 @@
                                 <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-2 disabled:opacity-5 text-slate-400 transition"><Icon name="chevron-right" size={28} /></button>
                             </div>
                         )}
-                       
+
                         <footer className="p-4 bg-slate-950/50 border-t border-slate-800 text-[9px] text-slate-700 flex justify-between font-mono font-bold italic uppercase tracking-widest">
                             <span>Status: Cloud Sync</span>
-                            <span className="opacity-30">{user?.uid.slice(0, 10)}</span>
+                            <span className="opacity-30">{user?.uid?.slice(0, 10) || ''}</span>
                         </footer>
                     </div>
 
@@ -332,7 +324,6 @@
                         </div>
                     )}
 
-                    {/* データ管理モーダル */}
                     <SettingsModal
                         isOpen={modalState.type === 'settings'}
                         onClose={() => setModalState({ type: null })}
